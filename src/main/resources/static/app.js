@@ -1,6 +1,6 @@
 let currentUser = null;
 let allMoviesData = [];
-const API_BASE = "https://your-render-url-here.onrender.com"; // UPDATE THIS ONCE RENDER IS LIVE
+const API_BASE = "https://movie-ticket-api-v2.onrender.com"; // UPDATE THIS ONCE RENDER IS LIVE
 
 // PERSISTENCE CHECK ON BOOT
 document.addEventListener("DOMContentLoaded", () => {

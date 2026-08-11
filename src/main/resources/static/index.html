@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Tickets Booking</title>
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="toast" class="toast"></div>
+
+<!-- QR CODE MODAL OVERLAY -->
+<div id="qr-modal" class="modal-overlay hidden">
+    <div class="glass-panel modal-box">
+        <h3 style="margin-bottom: 15px;">Your E-Ticket QR</h3>
+        <div id="qr-loader">Generating Secure Code...</div>
+        <img id="qr-image" class="hidden" style="width: 200px; height: 200px; border-radius: 10px; margin: 0 auto; display: block;" crossorigin="anonymous">
+        <h2 id="qr-code-text" style="text-align: center; color: #00e676; letter-spacing: 5px; margin: 15px 0;"></h2>
+        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px;">Show this QR or code at the counter.</p>
+        <div class="row">
+            <button class="btn-primary" onclick="downloadQR()">Download QR</button>
+            <button class="btn-secondary" onclick="closeQRModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- AUTHENTICATION VIEW -->
+<div id="auth-view" class="view-container active">
+    <div class="glass-panel auth-box">
+        <div class="tab-header">
+            <button type="button" id="tab-login" class="active" onclick="switchAuthTab('login')">Sign In</button>
+            <button type="button" id="tab-register" onclick="switchAuthTab('register')">Register</button>
+        </div>
+
+        <form id="login-form" class="auth-form active">
+            <div class="input-group"><label>Email</label><input type="email" id="log-email" required></div>
+            <div class="input-group"><label>Password</label><input type="password" id="log-pass" required></div>
+            <button type="submit" class="btn-primary">Secure Login</button>
+        </form>
+
+        <form id="register-form" class="auth-form">
+            <div class="input-group">
+                <label>Email Address</label><input type="email" id="reg-email" required>
+                <small id="email-error" class="error-text hidden">❌ Invalid Email Format</small>
+            </div>
+            <div class="input-group"><label>Password</label><input type="password" id="reg-pass" required></div>
+            <div class="password-rules">
+                <p id="rule-len">❌ > 8 characters</p><p id="rule-up">❌ 1 Uppercase</p>
+                <p id="rule-low">❌ 1 Lowercase</p><p id="rule-num">❌ 1 Number</p>
+                <p id="rule-spec">❌ 1 Special Char (@$!%*?&-#^)</p>
+            </div>
+            <button type="submit" class="btn-primary" id="reg-btn" disabled>Create Account</button>
+        </form>
+    </div>
+</div>
+
+<!-- ADMIN VIEW -->
+<div id="admin-view" class="view-container">
+    <!-- Add Movie Box -->
+    <div class="glass-panel dashboard-box" style="margin-bottom: 20px;">
+        <h2>🛠 Admin Movie Manager</h2>
+        <form id="admin-form">
+            <div class="input-group"><label>Movie Title</label><input type="text" id="admin-title" required></div>
+            <div class="input-group">
+                <label>Show Time</label>
+                <select id="admin-time"><option>09:00 AM</option><option>12:30 PM</option><option>06:00 PM</option></select>
+            </div>
+            <div class="row">
+                <div class="input-group"><label>Hall</label><select id="admin-hall" onchange="updateAdminLocs()"><option>QFX</option><option>OneCinema</option></select></div>
+                <div class="input-group"><label>Location</label><select id="admin-loc"></select></div>
+            </div>
+            <div class="row">
+                <div class="input-group"><label>Seats</label><input type="number" id="admin-seats" value="100" required></div>
+                <div class="input-group"><label>Cost</label><input type="number" id="admin-cost" value="350" required></div>
+            </div>
+            <button type="submit" class="btn-primary">Publish Movie</button>
+        </form>
+    </div>
+
+    <!-- NEW: Validate Ticket Box -->
+    <div class="glass-panel dashboard-box">
+        <h2>🎫 Validate QR Ticket</h2>
+        <form id="admin-validate-form">
+            <div class="input-group">
+                <label>Enter 6-Character Ticket Code</label>
+                <input type="text" id="admin-ticket-code" maxlength="6" style="text-transform: uppercase; font-size: 18px; text-align: center; letter-spacing: 4px;" required>
+            </div>
+            <button type="submit" class="btn-primary" style="background: linear-gradient(45deg, #f5af19, #f12711); box-shadow: 0 4px 15px rgba(241, 39, 17, 0.4);">Execute Ticket</button>
+        </form>
+        <button class="btn-secondary" onclick="logout()" style="margin-top: 15px;">Logout Admin</button>
+    </div>
+</div>
+
+<!-- USER VIEW -->
+<div id="user-view" class="view-container">
+    <div class="glass-panel dashboard-box">
+        <h2>🍿 Book Your Tickets</h2>
+        <form id="user-book-form">
+            <div class="input-group"><label>1. Movie</label><select id="user-movie" onchange="updateUserLocs()" required></select></div>
+            <div class="input-group"><label>2. Location</label><select id="user-loc" onchange="updateUserTimes()" required></select></div>
+            <div class="input-group"><label>3. Time</label><select id="user-time" onchange="updatePriceDisplay()" required></select></div>
+
+            <div class="movie-stats"><span id="display-price">Price: Rs. 0</span><span id="display-seats">Seats: 0</span></div>
+            <div class="input-group"><label>Tickets</label><input type="number" id="user-tickets" min="1" value="1" onchange="updatePriceDisplay()" required></div>
+            <h3 id="display-total" class="total-price">Total to Pay: Rs. 0</h3>
+            <div class="radio-group"><label><input type="radio" checked> Pay in counter</label></div>
+            <button type="submit" class="btn-primary">Confirm Purchase</button>
+        </form>
+
+        <div class="receipts-area">
+            <h3>🎫 My Bookings</h3><div id="bookings-list" class="bookings-list">Loading...</div>
+        </div>
+        <div class="row" style="margin-top: 15px;">
+            <button class="btn-secondary" onclick="loadUserBookings()">Refresh</button>
+            <button class="btn-danger" onclick="logout()">Logout</button>
+        </div>
+    </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

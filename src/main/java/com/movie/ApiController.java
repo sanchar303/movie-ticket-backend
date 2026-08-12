@@ -3,6 +3,9 @@ package com.movie;
 import org.json.JSONObject;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
@@ -12,6 +15,9 @@ import java.util.UUID;
 @CrossOrigin(origins = "*")
 public class ApiController {
     private final FirebaseService db;
+    
+    // Secret Server Token (Only given to the true Admin)
+    private static final String ADMIN_SECRET = "SK_SECURE_ADMIN_TOKEN_908234";
 
     public ApiController(FirebaseService db) { this.db = db; }
 
@@ -19,19 +25,38 @@ public class ApiController {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(email.getBytes());
     }
 
+    // SHA-256 Hashing Algorithm
+    private String hashPassword(String password) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(password.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder(2 * hash.length);
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) { throw new RuntimeException("Encryption Error"); }
+    }
+
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> creds) {
         String email = creds.get("email");
         String pass = creds.get("password");
 
+        // Hardcoded Admin Auth -> Grants Secret Token
         if (email.equals("sanchar@admin.com") && pass.equals("T!ger5243")) {
-            return ResponseEntity.ok(Map.of("status", "success", "role", "admin", "email", email));
+            return ResponseEntity.ok(Map.of("status", "success", "role", "admin", "email", email, "token", ADMIN_SECRET));
         }
+        
+        // Standard User Auth -> Verifies Hashed Password
         try {
             String result = db.get("/users/" + encodeEmail(email));
             if (result == null || result.equals("null")) return ResponseEntity.badRequest().body("User not found.");
+            
             JSONObject user = new JSONObject(result);
-            if (user.getString("password").equals(pass)) {
+            if (user.getString("password").equals(hashPassword(pass))) {
                 return ResponseEntity.ok(Map.of("status", "success", "role", "user", "email", email));
             } else {
                 return ResponseEntity.badRequest().body("Incorrect password.");
@@ -45,8 +70,11 @@ public class ApiController {
         String safeKey = encodeEmail(email);
         try {
             if (!"null".equals(db.get("/users/" + safeKey))) return ResponseEntity.badRequest().body("Email exists.");
+            
             JSONObject user = new JSONObject();
-            user.put("email", email); user.put("password", data.get("password"));
+            user.put("email", email); 
+            user.put("password", hashPassword(data.get("password"))); // Hashes password before saving
+            
             db.put("/users/" + safeKey, user.toString());
             return ResponseEntity.ok("Success");
         } catch (Exception e) { return ResponseEntity.internalServerError().body("Error."); }
@@ -58,22 +86,25 @@ public class ApiController {
         return ResponseEntity.ok(res != null && !res.equals("null") ? res : "{}");
     }
 
+    // ================= SECURED ADMIN ROUTES =================
+    
     @PostMapping("/movies")
-    public ResponseEntity<?> addMovie(@RequestBody String movieJson) throws Exception {
+    public ResponseEntity<?> addMovie(@RequestHeader(value = "Admin-Token", defaultValue = "") String token, @RequestBody String movieJson) throws Exception {
+        if (!ADMIN_SECRET.equals(token)) return ResponseEntity.status(403).body("Unauthorized");
         db.post("/movies", movieJson); 
         return ResponseEntity.ok("Added");
     }
 
-    // --- NEW ADMIN UPDATE ROUTE ---
     @PutMapping("/movies")
-    public ResponseEntity<?> updateMovie(@RequestParam String id, @RequestBody String movieJson) throws Exception {
+    public ResponseEntity<?> updateMovie(@RequestHeader(value = "Admin-Token", defaultValue = "") String token, @RequestParam String id, @RequestBody String movieJson) throws Exception {
+        if (!ADMIN_SECRET.equals(token)) return ResponseEntity.status(403).body("Unauthorized");
         db.put("/movies/" + id, movieJson);
         return ResponseEntity.ok("Updated");
     }
 
-    // --- NEW ADMIN DELETE ROUTE ---
     @DeleteMapping("/movies")
-    public ResponseEntity<?> deleteMovie(@RequestParam String id) throws Exception {
+    public ResponseEntity<?> deleteMovie(@RequestHeader(value = "Admin-Token", defaultValue = "") String token, @RequestParam String id) throws Exception {
+        if (!ADMIN_SECRET.equals(token)) return ResponseEntity.status(403).body("Unauthorized");
         String res = db.get("/movies");
         if (res != null && !res.equals("null")) {
             JSONObject movies = new JSONObject(res);
@@ -86,6 +117,32 @@ public class ApiController {
         return ResponseEntity.badRequest().body("Not found");
     }
 
+    @PostMapping("/validate-ticket")
+    public ResponseEntity<?> validateTicket(@RequestHeader(value = "Admin-Token", defaultValue = "") String token, @RequestBody Map<String, String> payload) throws Exception {
+        if (!ADMIN_SECRET.equals(token)) return ResponseEntity.status(403).body("Unauthorized");
+        
+        String code = payload.get("code");
+        String allBookings = db.get("/bookings");
+        if (allBookings == null || allBookings.equals("null")) return ResponseEntity.badRequest().body("Database is empty.");
+        
+        JSONObject bookingsObj = new JSONObject(allBookings);
+        for (String emailKey : bookingsObj.keySet()) {
+            JSONObject userBookings = bookingsObj.getJSONObject(emailKey);
+            for (String pushId : userBookings.keySet()) {
+                JSONObject b = userBookings.getJSONObject(pushId);
+                if (b.has("ticketCode") && b.getString("ticketCode").equals(code)) {
+                    if (b.optString("status", "Valid").equals("Used")) return ResponseEntity.badRequest().body("❌ TICKET ALREADY USED!");
+                    b.put("status", "Used");
+                    db.put("/bookings/" + emailKey + "/" + pushId, b.toString());
+                    return ResponseEntity.ok(Map.of("message", "✅ Ticket Validated!", "movie", b.getString("movie"), "tickets", String.valueOf(b.getInt("tickets"))));
+                }
+            }
+        }
+        return ResponseEntity.badRequest().body("❌ Invalid Ticket Code.");
+    }
+    
+    // ================= STANDARD USER ROUTES =================
+
     @GetMapping("/bookings")
     public ResponseEntity<?> getBookings(@RequestParam String email) throws Exception {
         String res = db.get("/bookings/" + encodeEmail(email));
@@ -95,7 +152,6 @@ public class ApiController {
     @PostMapping("/bookings")
     public ResponseEntity<?> addBooking(@RequestParam String email, @RequestBody String bookingJson) throws Exception {
         JSONObject b = new JSONObject(bookingJson);
-        
         String moviesRes = db.get("/movies");
         if (moviesRes != null && !moviesRes.equals("null")) {
             JSONObject moviesObj = new JSONObject(moviesRes);
@@ -177,27 +233,5 @@ public class ApiController {
             return ResponseEntity.ok("Ticket permanently erased.");
         }
         return ResponseEntity.badRequest().body("Ticket not found.");
-    }
-
-    @PostMapping("/validate-ticket")
-    public ResponseEntity<?> validateTicket(@RequestBody Map<String, String> payload) throws Exception {
-        String code = payload.get("code");
-        String allBookings = db.get("/bookings");
-        if (allBookings == null || allBookings.equals("null")) return ResponseEntity.badRequest().body("Database is empty.");
-        
-        JSONObject bookingsObj = new JSONObject(allBookings);
-        for (String emailKey : bookingsObj.keySet()) {
-            JSONObject userBookings = bookingsObj.getJSONObject(emailKey);
-            for (String pushId : userBookings.keySet()) {
-                JSONObject b = userBookings.getJSONObject(pushId);
-                if (b.has("ticketCode") && b.getString("ticketCode").equals(code)) {
-                    if (b.optString("status", "Valid").equals("Used")) return ResponseEntity.badRequest().body("❌ TICKET ALREADY USED!");
-                    b.put("status", "Used");
-                    db.put("/bookings/" + emailKey + "/" + pushId, b.toString());
-                    return ResponseEntity.ok(Map.of("message", "✅ Ticket Validated!", "movie", b.getString("movie"), "tickets", String.valueOf(b.getInt("tickets"))));
-                }
-            }
-        }
-        return ResponseEntity.badRequest().body("❌ Invalid Ticket Code.");
     }
 }

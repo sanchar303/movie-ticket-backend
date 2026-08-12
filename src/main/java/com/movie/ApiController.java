@@ -64,6 +64,28 @@ public class ApiController {
         return ResponseEntity.ok("Added");
     }
 
+    // --- NEW ADMIN UPDATE ROUTE ---
+    @PutMapping("/movies")
+    public ResponseEntity<?> updateMovie(@RequestParam String id, @RequestBody String movieJson) throws Exception {
+        db.put("/movies/" + id, movieJson);
+        return ResponseEntity.ok("Updated");
+    }
+
+    // --- NEW ADMIN DELETE ROUTE ---
+    @DeleteMapping("/movies")
+    public ResponseEntity<?> deleteMovie(@RequestParam String id) throws Exception {
+        String res = db.get("/movies");
+        if (res != null && !res.equals("null")) {
+            JSONObject movies = new JSONObject(res);
+            if (movies.has(id)) {
+                movies.remove(id);
+                db.put("/movies", movies.isEmpty() ? "{}" : movies.toString());
+                return ResponseEntity.ok("Deleted");
+            }
+        }
+        return ResponseEntity.badRequest().body("Not found");
+    }
+
     @GetMapping("/bookings")
     public ResponseEntity<?> getBookings(@RequestParam String email) throws Exception {
         String res = db.get("/bookings/" + encodeEmail(email));
@@ -74,7 +96,6 @@ public class ApiController {
     public ResponseEntity<?> addBooking(@RequestParam String email, @RequestBody String bookingJson) throws Exception {
         JSONObject b = new JSONObject(bookingJson);
         
-        // --- SEAT DEDUCTION LOGIC ---
         String moviesRes = db.get("/movies");
         if (moviesRes != null && !moviesRes.equals("null")) {
             JSONObject moviesObj = new JSONObject(moviesRes);
@@ -134,7 +155,6 @@ public class ApiController {
         }
         
         if (bookingToDeleteId != null) {
-            // --- RETURN SEATS TO MOVIE HALL ---
             String moviesRes = db.get("/movies");
             if (moviesRes != null && !moviesRes.equals("null") && bookingToDeleteObj != null) {
                 JSONObject moviesObj = new JSONObject(moviesRes);
@@ -152,7 +172,6 @@ public class ApiController {
                 }
             }
             
-            // Delete the booking entirely
             bookingsObj.remove(bookingToDeleteId);
             db.put("/bookings/" + encodedEmail, bookingsObj.isEmpty() ? "{}" : bookingsObj.toString());
             return ResponseEntity.ok("Ticket permanently erased.");
